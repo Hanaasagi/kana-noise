@@ -116,7 +116,7 @@ run: ## Run main program (audio processing pipeline)
 	@echo "$(YELLOW)Running audio processing pipeline...$(RESET)"
 	$(UV) run python $(SCRIPTS_DIR)/extract.py \
 		-d $(VIDEOS_DIR) -r $(RUNS_DIR) \
-		--reuse --num-workers 2 --log-level INFO \
+		--reuse --log-level INFO \
 		--separate-vocals --demucs-model mdx_q --demucs-device mps --demucs-two-stems vocals \
 		--vad-aggr 2 --vad-min-ms 150 --vad-merge-ms 200 \
 		--score-thr 0.15 --min-sec 0.20 --merge-gap 0.30 --pad-sec 0.20 \
@@ -129,7 +129,7 @@ run-preview: ## Run preview mode (process only first 10 minutes)
 	@echo "$(YELLOW)Running preview mode (first 10 minutes)...$(RESET)"
 	$(UV) run python $(SCRIPTS_DIR)/extract.py \
 		-d $(VIDEOS_DIR) -r $(RUNS_DIR) \
-		--reuse --num-workers 1 --log-level INFO \
+		--reuse --log-level INFO \
 		--preview-minutes 10 \
 		--separate-vocals --demucs-model mdx_q --demucs-device mps --demucs-two-stems vocals \
 		--vad-aggr 2 --vad-min-ms 150 --vad-merge-ms 200 \

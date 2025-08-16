@@ -2,7 +2,7 @@ import os
 import subprocess
 import logging
 from dataclasses import dataclass
-from typing import Dict, Any, List, Tuple
+from typing import Dict, List, Tuple, TypedDict, Protocol
 
 import wave
 import numpy as np
@@ -29,6 +29,19 @@ class StepResult:
     reason: str
 
 
+class StepSignature(TypedDict, total=False):
+    version: str
+    # Common fields may be added by steps
+
+
+class ExecutableStep(Protocol):
+    name: str
+
+    def outputs_ready(self) -> bool: ...
+    def signature(self) -> StepSignature: ...
+    def run(self) -> None: ...
+
+
 class Step:
     name: str = "step"
 
@@ -43,7 +56,7 @@ class Step:
     def outputs_ready(self) -> bool:
         raise NotImplementedError
 
-    def signature(self) -> Dict[str, Any]:
+    def signature(self) -> StepSignature:
         raise NotImplementedError
 
     def run(self) -> None:
@@ -70,6 +83,7 @@ class Step:
 
 class ExtractStep(Step):
     name = "extract"
+    API_VERSION = "1.0"
 
     def __init__(
         self,
@@ -99,9 +113,10 @@ class ExtractStep(Step):
             "exists", False
         )
 
-    def signature(self) -> Dict[str, Any]:
+    def signature(self) -> StepSignature:
         vinfo = file_info(self.video_path)
         return {
+            "version": self.API_VERSION,
             "video": {"path": self.video_path, **vinfo},
             "sr16": self.sr16,
             "sr44": self.sr44,
@@ -157,6 +172,7 @@ class ExtractStep(Step):
 
 class DemucsStep(Step):
     name = "demucs"
+    API_VERSION = "1.0"
 
     def __init__(
         self,
@@ -192,8 +208,9 @@ class DemucsStep(Step):
             p["vocals16"]
         ).get("exists", False)
 
-    def signature(self) -> Dict[str, Any]:
+    def signature(self) -> StepSignature:
         return {
+            "version": self.API_VERSION,
             "wav44": file_info(self.wav44),
             "model": self.model,
             "jobs": self.jobs,
@@ -328,6 +345,7 @@ def _collect_vad_segments(
 
 class VADStep(Step):
     name = "vad"
+    API_VERSION = "1.0"
 
     def __init__(
         self,
@@ -349,9 +367,10 @@ class VADStep(Step):
     def outputs_ready(self) -> bool:
         return file_info(self.paths()["segments"]).get("exists", False)
 
-    def signature(self) -> Dict[str, Any]:
+    def signature(self) -> StepSignature:
         wav = _detect_wav(self.run_dir)
         return {
+            "version": self.API_VERSION,
             "wav": file_info(wav),
             "aggr": self.aggr,
             "min_ms": self.min_ms,
@@ -459,6 +478,7 @@ def _events_from_threshold(
 
 class ScoreStep(Step):
     name = "score"
+    API_VERSION = "1.0"
 
     def __init__(
         self,
@@ -489,9 +509,10 @@ class ScoreStep(Step):
             and file_info(p["events"]).get("exists", False)
         )
 
-    def signature(self) -> Dict[str, Any]:
+    def signature(self) -> StepSignature:
         wav = _detect_wav(self.run_dir)
         return {
+            "version": self.API_VERSION,
             "wav": file_info(wav),
             "thr": self.thr,
             "min_sec": self.min_sec,
@@ -520,6 +541,7 @@ class ScoreStep(Step):
 
 class IntersectStep(Step):
     name = "intersect"
+    API_VERSION = "1.0"
 
     def __init__(self, run_dir: str, pad_sec: float = 0.20):
         super().__init__(run_dir)
@@ -533,10 +555,15 @@ class IntersectStep(Step):
     def outputs_ready(self) -> bool:
         return file_info(self.paths()["events_vad"]).get("exists", False)
 
-    def signature(self) -> Dict[str, Any]:
+    def signature(self) -> StepSignature:
         vad = os.path.join(self.run_dir, "vad", "segments.json")
         ev = os.path.join(self.run_dir, "score", "events.json")
-        return {"vad": file_info(vad), "events": file_info(ev), "pad": self.pad}
+        return {
+            "version": self.API_VERSION,
+            "vad": file_info(vad),
+            "events": file_info(ev),
+            "pad": self.pad,
+        }
 
     def run(self) -> None:
         vad = read_json(os.path.join(self.run_dir, "vad", "segments.json")) or {
@@ -576,6 +603,7 @@ class IntersectStep(Step):
 
 class PannsStep(Step):
     name = "panns"
+    API_VERSION = "1.0"
 
     def __init__(
         self,
@@ -597,9 +625,10 @@ class PannsStep(Step):
     def outputs_ready(self) -> bool:
         return file_info(self.paths()["refined"]).get("exists", False)
 
-    def signature(self) -> Dict[str, Any]:
+    def signature(self) -> StepSignature:
         ev = os.path.join(self.run_dir, "events", "events_vad.json")
         return {
+            "version": self.API_VERSION,
             "events": file_info(ev),
             "use": self.use,
             "thr": self.thr,
@@ -669,6 +698,7 @@ class PannsStep(Step):
 
 class ParalinguisticStep(Step):
     name = "paralinguistic"
+    API_VERSION = "1.0"
 
     def __init__(
         self,
@@ -690,10 +720,11 @@ class ParalinguisticStep(Step):
     def outputs_ready(self) -> bool:
         return file_info(self.paths()["refined"]).get("exists", False)
 
-    def signature(self) -> Dict[str, Any]:
+    def signature(self) -> StepSignature:
         wav = _detect_wav(self.run_dir)
         vad = os.path.join(self.run_dir, "vad", "segments.json")
         return {
+            "version": self.API_VERSION,
             "wav": file_info(wav),
             "vad": file_info(vad),
             "enable": self.enable,
@@ -929,6 +960,7 @@ class ParalinguisticStep(Step):
 
 class ExportStep(Step):
     name = "export"
+    API_VERSION = "1.0"
 
     def __init__(self, run_dir: str, video_path: str, reencode: bool = False):
         super().__init__(run_dir)
@@ -947,12 +979,13 @@ class ExportStep(Step):
         p = self.paths()
         return file_info(p["csv_all"]).get("exists", False)
 
-    def signature(self) -> Dict[str, Any]:
+    def signature(self) -> StepSignature:
         # Prefer PANNs refined if exists
         panns_ev = os.path.join(self.run_dir, "panns", "refined.json")
         quirks_ev = os.path.join(self.run_dir, "paralinguistic", "refined.json")
         base_ev = os.path.join(self.run_dir, "events", "events_vad.json")
         return {
+            "version": self.API_VERSION,
             "events_sources": [
                 file_info(panns_ev),
                 file_info(quirks_ev),
@@ -1048,7 +1081,11 @@ class ExportStep(Step):
             clips_dir = os.path.join(edir, "clips", typ)
             ensure_dir(clips_dir)
             sh_path = os.path.join(edir, f"cut_{typ}.sh")
-            lines = ["#!/usr/bin/env bash", "set -euo pipefail"]
+            lines = [
+                "#!/usr/bin/env bash",
+                "set -euo pipefail",
+                f"mkdir -p '{clips_dir}'",
+            ]
             for s, e in evs:
                 dur = max(0.0, e - s)
                 out = os.path.join(clips_dir, f"{fmt_time(s)}.mp4")

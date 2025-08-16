@@ -1,7 +1,6 @@
-import os
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List, Optional
+from pathlib import Path
+from typing import List, Optional, Union
 
 from .steps import (
     ExtractStep,
@@ -18,15 +17,17 @@ from .utils import ensure_dir
 logger = logging.getLogger(__name__)
 
 
+PathLike = Union[str, Path]
+
+
 def video_stem(path: str) -> str:
-    base = os.path.basename(path)
-    stem, _ = os.path.splitext(base)
-    return stem
+    p = Path(path)
+    return p.stem
 
 
 def process_one(
-    video_path: str,
-    runs_root: str,
+    video_path: PathLike,
+    runs_root: PathLike,
     reuse: bool = True,
     preview_minutes: float = 0.0,
     # demucs
@@ -58,13 +59,15 @@ def process_one(
     reencode: bool = False,
     do_export: bool = True,
 ) -> str:
-    stem = video_stem(video_path)
-    run_dir = os.path.join(runs_root, stem)
+    video_path = Path(video_path)
+    runs_root = Path(runs_root)
+    stem = video_stem(str(video_path))
+    run_dir = runs_root / stem
     ensure_dir(run_dir)
 
     extract = ExtractStep(
-        run_dir,
-        video_path,
+        str(run_dir),
+        str(video_path),
         sr16=16000,
         sr44=44100,
         preview_seconds=preview_minutes * 60.0,
@@ -74,7 +77,7 @@ def process_one(
     paths = extract.paths()
     if separate_vocals:
         demucs = DemucsStep(
-            run_dir,
+            str(run_dir),
             wav44=paths["wav44"],
             model=demucs_model,
             device=demucs_device,
@@ -83,26 +86,29 @@ def process_one(
         )
         demucs.execute(reuse=reuse)
         if demucs_only:
-            return run_dir
+            return str(run_dir)
 
     vad = VADStep(
-        run_dir, aggressiveness=vad_aggr, min_ms=vad_min_ms, merge_ms=vad_merge_ms
+        str(run_dir), aggressiveness=vad_aggr, min_ms=vad_min_ms, merge_ms=vad_merge_ms
     )
     vad.execute(reuse=reuse)
 
-    score = ScoreStep(run_dir, thr=score_thr, min_sec=min_sec, merge_gap=merge_gap)
+    score = ScoreStep(str(run_dir), thr=score_thr, min_sec=min_sec, merge_gap=merge_gap)
     score.execute(reuse=reuse)
 
-    inter = IntersectStep(run_dir, pad_sec=pad_sec)
+    inter = IntersectStep(str(run_dir), pad_sec=pad_sec)
     inter.execute(reuse=reuse)
 
     panns = PannsStep(
-        run_dir, use_panns=use_panns, panns_thr=panns_thr, anti_singing=anti_singing
+        str(run_dir),
+        use_panns=use_panns,
+        panns_thr=panns_thr,
+        anti_singing=anti_singing,
     )
     panns.execute(reuse=reuse)
 
     quirks = ParalinguisticStep(
-        run_dir,
+        str(run_dir),
         enable=extract_quirks,
         panns_enable=quirks_panns,
         panns_thr=quirks_panns_thr,
@@ -110,41 +116,36 @@ def process_one(
     quirks.execute(reuse=reuse)
 
     if do_export:
-        export = ExportStep(run_dir, video_path=video_path, reencode=reencode)
+        export = ExportStep(str(run_dir), video_path=str(video_path), reencode=reencode)
         export.execute(reuse=reuse)
 
-    return run_dir
+    return str(run_dir)
 
 
 def batch_process(
-    videos_dir: str,
-    runs_root: str,
+    videos_dir: PathLike,
+    runs_root: PathLike,
     patterns: Optional[List[str]] = None,
     file_list: Optional[List[str]] = None,
-    num_workers: int = 2,
     **kwargs,
 ) -> List[str]:
+    runs_root = Path(runs_root)
+    videos_dir = Path(videos_dir)
     ensure_dir(runs_root)
     # Collect mp4 files
     if file_list is not None and len(file_list) > 0:
-        files = file_list
+        files = [str(Path(p)) for p in file_list]
     else:
-        files = [
-            os.path.join(videos_dir, f)
-            for f in os.listdir(videos_dir)
-            if f.lower().endswith(".mp4")
-        ]
+        files = [str(p) for p in videos_dir.iterdir() if p.suffix.lower() == ".mp4"]
     files.sort()
-    results = []
+    results: List[str] = []
     logger.info("Batch start: %d files", len(files))
-    with ThreadPoolExecutor(max_workers=max(1, num_workers)) as ex:
-        futs = {ex.submit(process_one, f, runs_root, **kwargs): f for f in files}
-        for fut in as_completed(futs):
-            try:
-                run_dir = fut.result()
-                results.append(run_dir)
-                logger.info("Done: %s", futs[fut])
-            except Exception as e:
-                logger.exception("Failed on %s: %s", futs[fut], e)
+    for f in files:
+        try:
+            run_dir = process_one(f, runs_root, **kwargs)
+            results.append(run_dir)
+            logger.info("Done: %s", f)
+        except Exception as e:
+            logger.exception("Failed on %s: %s", f, e)
     logger.info("Batch finished: %d ok", len(results))
     return results

@@ -38,12 +38,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=0.0,
         help="Process only first N minutes",
     )
-    parser.add_argument(
-        "--num-workers",
-        type=int,
-        default=2,
-        help="Number of concurrent videos to process",
-    )
+    # removed: num-workers (GPU/MPS memory contention)
     parser.add_argument(
         "--log-level",
         default="INFO",
@@ -174,7 +169,6 @@ def main():
     results = batch_process(
         videos_dir=args.videos_dir,
         runs_root=args.runs_root,
-        num_workers=args.num_workers,
         reuse=reuse,
         preview_minutes=args.preview_minutes,
         separate_vocals=args.separate_vocals,
