@@ -2,12 +2,13 @@ import os
 import subprocess
 import logging
 from dataclasses import dataclass
-from typing import Dict, List, Tuple, TypedDict, Protocol
+from typing import Dict, List, Tuple, TypedDict, Protocol, Optional
 
 import wave
 import numpy as np
 import librosa
 import webrtcvad
+import shutil
 
 try:
     from panns_inference import AudioTagging as _PannsAT  # type: ignore
@@ -1098,3 +1099,136 @@ class ExportStep(Step):
                 f.write("\n".join(lines) + "\n")
             os.chmod(sh_path, 0o755)
             logger.info("[export] %s: %d clips, sh=%s", typ, len(evs), sh_path)
+
+
+class SubtitleStep(Step):
+    name = "subtitle"
+    API_VERSION = "1.0"
+
+    def __init__(
+        self,
+        run_dir: str,
+        enable: bool = False,
+        model_path: Optional[str] = None,
+        language: str = "auto",
+    ):
+        super().__init__(run_dir)
+        self.enable = enable
+        self.model_path = model_path
+        self.language = language
+
+    def _input_wav(self) -> str:
+        cand = os.path.join(self.run_dir, "audio", "vocals_16k.wav")
+        return (
+            cand
+            if os.path.isfile(cand)
+            else os.path.join(self.run_dir, "audio", "extracted_16k.wav")
+        )
+
+    def _resolve_model(self) -> Optional[str]:
+        if self.model_path and os.path.isfile(self.model_path):
+            return self.model_path
+        project_root = os.path.abspath(os.path.join(self.run_dir, os.pardir, os.pardir))
+        default_dir = os.path.join(project_root, "models", "whisper")
+        if not os.path.isdir(default_dir):
+            return None
+        bins = [fn for fn in os.listdir(default_dir) if fn.endswith(".bin")]
+        if not bins:
+            return None
+        # Non-interactive resolution: pick first deterministically (sorted)
+        bins.sort()
+        return os.path.join(default_dir, bins[0])
+
+    def _select_model_interactive(self) -> Optional[str]:
+        # Interactive chooser when multiple models are present
+        project_root = os.path.abspath(os.path.join(self.run_dir, os.pardir, os.pardir))
+        default_dir = os.path.join(project_root, "models", "whisper")
+        if not os.path.isdir(default_dir):
+            return None
+        bins = [fn for fn in os.listdir(default_dir) if fn.endswith(".bin")]
+        if not bins:
+            return None
+        if len(bins) == 1:
+            return os.path.join(default_dir, bins[0])
+        print("Multiple whisper models found under models/whisper. Select one:")
+        bins.sort()
+        for i, fn in enumerate(bins):
+            print(f"[{i}] {fn}")
+        sel = input("> ").strip()
+        try:
+            idx = int(sel)
+            if 0 <= idx < len(bins):
+                return os.path.join(default_dir, bins[idx])
+        except Exception:
+            return os.path.join(default_dir, bins[0])
+        return os.path.join(default_dir, bins[0])
+
+    def paths(self) -> Dict[str, str]:
+        sdir = os.path.join(self.run_dir, "subs")
+        ensure_dir(sdir)
+        base = os.path.join(sdir, "vocals")
+        return {
+            "subs": f"{base}.srt",
+            "base": base,
+            "log": os.path.join(self.run_dir, "logs", "whisper.log"),
+        }
+
+    def outputs_ready(self) -> bool:
+        return file_info(self.paths()["subs"]).get("exists", False)
+
+    def signature(self) -> StepSignature:
+        # Avoid interactive prompts in signature: prefer provided model, or previous meta, else a deterministic pick
+        prev = read_json(self.meta_path()) or {}
+        prev_sig = prev.get("signature", {}) if isinstance(prev, dict) else {}
+        model_for_sig = (
+            self.model_path or prev_sig.get("model") or (self._resolve_model() or "")
+        )
+        return {
+            "version": self.API_VERSION,
+            "enable": self.enable,
+            "wav": file_info(self._input_wav()),
+            "model": model_for_sig,
+            "format": "srt",
+            "language": self.language,
+        }
+
+    def run(self) -> None:
+        if not self.enable:
+            logger.info("[subs] disabled; skip")
+            return
+        if shutil.which("whisper-cli") is None:
+            raise RuntimeError("whisper.cpp CLI not found: whisper-cli")
+        # Resolve model: prefer explicit, then previous meta selection, else interactive once
+        prev = read_json(self.meta_path()) or {}
+        prev_sig = prev.get("signature", {}) if isinstance(prev, dict) else {}
+        model = (
+            self.model_path
+            or prev_sig.get("model")
+            or self._select_model_interactive()
+            or self._resolve_model()
+        )
+        if not model:
+            raise RuntimeError(
+                "Whisper model not found. Place a .bin under models/whisper or pass model path"
+            )
+        inp = self._input_wav()
+        p = self.paths()
+        # whisper.cpp flags: -osrt for SRT; -of base; -l language; -m model; -f input
+        cmd = [
+            "whisper-cli",
+            "-m",
+            model,
+            "-f",
+            inp,
+            "-osrt",
+            "-of",
+            p["base"],
+            "-l",
+            self.language,
+        ]
+        logger.info("[subs] cmd: %s", " ".join(cmd))
+        with open(p["log"], "w", encoding="utf-8", buffering=1) as lf:
+            lf.write("# whisper.cpp logs\n")
+            lf.write(f"cmd: {' '.join(cmd)}\n\n")
+            subprocess.run(cmd, check=True, stdout=lf, stderr=lf)
+        logger.info("[subs] generated: %s", p["subs"])

@@ -90,6 +90,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Use PANNs classes for paralinguistic (hum/whisper/sigh/etc)",
     )
     parser.add_argument("--quirks-panns-thr", type=float, default=0.30)
+    # Subtitle
+    parser.add_argument(
+        "--gen-subs",
+        action="store_true",
+        help="Generate subtitles with whisper.cpp after Demucs",
+    )
+    parser.add_argument(
+        "--whisper-model",
+        type=str,
+        default=None,
+        help="Path to whisper.cpp .bin model (optional)",
+    )
+    parser.add_argument(
+        "--subs-language",
+        type=str,
+        default="auto",
+        help="Whisper language (auto/zh/ja/en/...)",
+    )
     # Export
     parser.add_argument("--reencode", action="store_true")
     parser.add_argument("--no-export", action="store_true")
@@ -190,6 +208,9 @@ def main():
         extract_quirks=args.extract_quirks,
         quirks_panns=args.quirks_panns,
         quirks_panns_thr=args.quirks_panns_thr,
+        gen_subs=args.gen_subs,
+        whisper_model=args.whisper_model,
+        subs_language=args.subs_language,
         reencode=args.reencode,
         do_export=(not args.no_export),
         file_list=file_list,

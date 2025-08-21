@@ -11,6 +11,7 @@ from .steps import (
     PannsStep,
     ParalinguisticStep,
     ExportStep,
+    SubtitleStep,
 )
 from .utils import ensure_dir
 
@@ -55,6 +56,10 @@ def process_one(
     extract_quirks: bool = False,
     quirks_panns: bool = False,
     quirks_panns_thr: float = 0.30,
+    # subtitle
+    gen_subs: bool = False,
+    whisper_model: Optional[str] = None,
+    subs_language: str = "auto",
     # export
     reencode: bool = False,
     do_export: bool = True,
@@ -114,6 +119,11 @@ def process_one(
         panns_thr=quirks_panns_thr,
     )
     quirks.execute(reuse=reuse)
+
+    subs = SubtitleStep(
+        str(run_dir), enable=gen_subs, model_path=whisper_model, language=subs_language
+    )
+    subs.execute(reuse=reuse)
 
     if do_export:
         export = ExportStep(str(run_dir), video_path=str(video_path), reencode=reencode)

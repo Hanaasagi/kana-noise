@@ -121,7 +121,8 @@ run: ## Run main program (audio processing pipeline)
 		--vad-aggr 2 --vad-min-ms 150 --vad-merge-ms 200 \
 		--score-thr 0.15 --min-sec 0.20 --merge-gap 0.30 --pad-sec 0.20 \
 		--use-panns --panns-thr 0.05 \
-		--extract-quirks --quirks-panns --quirks-panns-thr 0.30
+		--extract-quirks --quirks-panns --quirks-panns-thr 0.30 \
+		--gen-subs --subs-language zh
 
 
 .PHONY: run-preview
@@ -133,7 +134,8 @@ run-preview: ## Run preview mode (process only first 10 minutes)
 		--preview-minutes 10 \
 		--separate-vocals --demucs-model mdx_q --demucs-device mps --demucs-two-stems vocals \
 		--vad-aggr 2 --vad-min-ms 150 --vad-merge-ms 200 \
-		--score-thr 0.15 --min-sec 0.20 --merge-gap 0.30 --pad-sec 0.20
+		--score-thr 0.15 --min-sec 0.20 --merge-gap 0.30 --pad-sec 0.20 \
+		--gen-subs --subs-language zh
 
 
 # =============================================================================
