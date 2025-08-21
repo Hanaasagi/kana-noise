@@ -15,6 +15,7 @@
 - 声活性: WebRTC VAD
 - 启发式评分: RMS/谱质心/谱滚降/谱平坦度/ZCR 的 z-score 加权
 - 事件分类（可选）: PANNs（AudioSet CNN14 多标签分类）。目前 PANNs 仅支持 `cpu/cuda`
+- 字幕: 使用 whisper.cpp 生成字幕
 - 工程化: 按步骤的“签名缓存”、结构化产物目录、并发与交互选择器
 
 代码结构（主要）: 
@@ -22,6 +23,7 @@
 - `src/kana/pipeline/`: 流水线步骤实现（extract/demucs/vad/score/intersect/panns/paralinguistic/export）
 - `runs/`: 每个视频的输出目录（见下）
 - `models/panns/`: PANNs 模型（`Cnn14_mAP=0.431.pth`）
+- `models/whisper/`: whisper.cpp 模型。可以使用 `misc/download-ggml-model.sh` 进行下载
 
 ## 实现细节
 
@@ -81,7 +83,9 @@
 - `paralinguistic/refined.json`: 副语言事件，`{"categories": {cat: [(s,e,score), ...], ...}}`
 - `export/events.csv`、`export/cut_<type>.sh`、`export/clips/<type>/*.mp4`
 - `meta/*.json`: 各步骤签名（signature），用于缓存
+- `subs/vocals.srt`: whisper.cpp 生成字幕
 - `logs/demucs.log`: Demucs 详细输出
+- `logs/whisper.log`: whisper.cpp 日志
 
 ## 使用方法
 
@@ -100,7 +104,8 @@ uv run python scripts/extract.py \
   --vad-aggr 2 --vad-min-ms 150 --vad-merge-ms 200 \
   --score-thr 0.40 --min-sec 0.20 --merge-gap 0.30 --pad-sec 0.20 \
   --use-panns --panns-thr 0.25 \
-  --extract-quirks --quirks-panns --quirks-panns-thr 0.30
+  --extract-quirks --quirks-panns --quirks-panns-thr 0.30 \
+  --gen-subs --subs-language zh
 ```
 
 预览模式（前 10 分钟）用于调试: 
@@ -108,7 +113,8 @@ uv run python scripts/extract.py \
 uv run python scripts/extract.py -d videos -r runs --preview-minutes 10 --reuse \
   --separate-vocals --demucs-model mdx_q --demucs-device mps --demucs-two-stems vocals \
   --vad-aggr 2 --vad-min-ms 150 --vad-merge-ms 200 \
-  --score-thr 0.40 --min-sec 0.20 --merge-gap 0.30 --pad-sec 0.20
+  --score-thr 0.40 --min-sec 0.20 --merge-gap 0.30 --pad-sec 0.20 \
+  --gen-subs --subs-language zh
 ```
 
 通过 Makefile: 
@@ -128,10 +134,10 @@ uv run python scripts/extract.py -d videos -r runs --preview-minutes 10 --reuse 
 1. demucs 分离人声耗时很长，mba m4 下 2 小时时长视频需要提取 30 分钟以上
 2. PANNs 不支持 MPS，需要使用 CPU
 3. 对于 `click/hum/murmur/` 分类识别并不准确
-4. 通过 vocal 无法识别 Vtuber 的口癖，比如咕咕嘎嘎
 
 ## 感谢下面的项目
 
 - https://github.com/facebookresearch/demucs
 - https://github.com/adefossez/demucs
 - https://github.com/qiuqiangkong/panns_inference
+- https://github.com/ggml-org/whisper.cpp
